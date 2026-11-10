@@ -7,7 +7,7 @@
 # Build with `horizon-launcher native-build <folder> --instance <id> --trust-native-code`.
 [mod]
 id = "steam_controller"
-version = "0.4.0"
+version = "0.4.1"
 
 # The same Horizon as the user's other mods, so they build into one game.
 [compatibility]
@@ -146,4 +146,42 @@ helper = "settings_click.rs"
 bindings = [
     { name = "mod_id", ty = "&str", value = "mod_id" },
     { name = "button", ty = "usize", value = "button" },
+]
+
+# ---- Horizon's keyboard on mods' screens (Machine Tech's Terminal search...) ----
+
+# View on a mod's screen opens the on-screen keyboard across the bottom.
+[[injection]]
+id = "mod_keyboard"
+target = "horizon_client::game::pad_menu::Game<'_>::pad_menu_button"
+kind = "HEAD"
+cancellable = true
+helper = "mod_keyboard.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "button", ty = "horizon_client::gamepad::Button", value = "button" },
+    { name = "down", ty = "bool", value = "down" },
+]
+
+# A mod's screen counts as one the keyboard types into while it's up for it.
+[[injection]]
+id = "typing_screen"
+target = "horizon_client::game::pad_menu::Game<'_>::pad_has_typing_screen"
+kind = "HEAD"
+cancellable = true
+helper = "typing_screen.rs"
+bindings = [
+    { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+]
+
+# Its keys go to the mod's screen as typed characters, Backspace and Enter.
+[[injection]]
+id = "keyboard_output"
+target = "horizon_client::game::pad_menu::Game<'_>::pad_osk_output"
+kind = "HEAD"
+cancellable = true
+helper = "keyboard_output.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "out", ty = "&horizon_client::osk::Output", value = "&out" },
 ]

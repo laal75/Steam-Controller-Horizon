@@ -2,3 +2,4 @@
 /tools/sign/target/
 __pycache__/
 *.key
+/native/steam_controller_hid/Cargo.lock

@@ -70,6 +70,13 @@ Hold the Steam button and click the left pad right (or left) to step forward (or
 
 `alt_tab = back` uses the View button instead (perspective then changes when View is let go), `off` turns it off. It works on Windows. Once you've switched away, the controller goes back to its desktop mouse after a second.
 
+## Typing with the controller
+
+- **Recipe book search** (normal crafting): select the search box and press A. Horizon's own on-screen keyboard opens at the bottom of the screen.
+- **Mods' screens** (Machine Tech's Terminal search, Quest Book...): press View. The same keyboard opens across the bottom, and its keys go to the screen as typing.
+
+On the keyboard, the d-pad or stick moves, A types, X deletes, Y is a space, Start is Enter and B closes it.
+
 ## On-screen controls
 
 While the Steam Controller is in use, the left-hand inputs are listed bottom left and the right-hand ones bottom right, as they are bound. The Steam button shows or hides them; `overlay = false` starts with them hidden.
@@ -100,8 +107,8 @@ The same settings are in `config/steam_controller.txt` in the instance folder. I
 | `trackpad_momentum` | `true` | keep turning after a flick |
 | `momentum_friction` | `5` | higher stops sooner |
 | `trackpad_invert_y` | `false` | |
-| `trackpad_deadzone` | `300` | pad units the thumb moves before the view turns (the pad is 65536 wide) |
-| `trackpad_smoothing` | `0.35` | 0 to 0.95, higher is smoother |
+| `trackpad_deadzone` | `120` | pad units the filtered thumb moves before the view turns (the pad is 65536 wide) |
+| `trackpad_smoothing` | `0.35` | 0 to 0.95: how hard a slow thumb's wobble is smoothed (One Euro filter; fast turns are never held back) |
 | `gyro` | `off` | `off`, `touch`, `always` |
 | `gyro_sensitivity` | `1.5` | 1.0 = the view turns as far as the controller |
 | `gyro_invert_x` / `gyro_invert_y` | `false` | |

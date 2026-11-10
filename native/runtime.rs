@@ -539,7 +539,7 @@ const BUTTON_CHOICES: &[&str] = &[
     "select", "none",
 ];
 const SENSITIVITIES: &[f32] = &[100.0, 140.0, 180.0, 220.0, 280.0, 350.0, 450.0];
-const DEADZONES: &[f32] = &[0.0, 100.0, 200.0, 300.0, 450.0, 650.0, 900.0];
+const DEADZONES: &[f32] = &[0.0, 60.0, 90.0, 120.0, 160.0, 220.0, 300.0];
 const SMOOTHINGS: &[f32] = &[0.0, 0.2, 0.35, 0.5, 0.7];
 const FRICTIONS: &[f32] = &[2.0, 3.5, 5.0, 8.0, 12.0];
 const GYRO_SENSITIVITIES: &[f32] = &[0.5, 1.0, 1.5, 2.0, 3.0, 4.0];
@@ -723,7 +723,7 @@ pub(in crate::game) fn mods_row(mods: &mut Vec<crate::mod_api::NativeMod>) {
     }
     mods.push(crate::mod_api::NativeMod {
         id: MOD_ID.to_owned(),
-        title: "Steam Controller 0.4.0".to_owned(),
+        title: "Steam Controller 0.4.1".to_owned(),
         description: "The original Steam Controller as a full controller: trackpad look, \
                       Controlify's layout, on-screen controls, filled block highlight."
             .to_owned(),
@@ -749,4 +749,69 @@ pub(in crate::game) fn settings_click(mod_id: &str, index: usize) {
     };
     act(&mut c);
     sc::save_config(&c);
+}
+
+// ---- Horizon's keyboard on mods' screens -----------------------------------------------------
+
+/// We opened Horizon's on-screen keyboard over a mod's screen (Machine Tech's Terminal and Quest
+/// Book, ...): its keys go to that screen as typed characters, Backspace and Enter.
+static MOD_KEYBOARD: AtomicBool = AtomicBool::new(false);
+
+/// The mod whose screen is open, if any.
+fn mod_screen_open(game: &Game<'_>) -> bool {
+    <Game<'_> as horizon_client::mod_api::Host>::mod_screen(game).is_some()
+}
+
+/// A controller button in a menu (`pad_menu_button`): on a mod's screen, View opens the keyboard
+/// across the bottom of the screen (the D-pad or stick moves over it, A types, X deletes, Y is a
+/// space, Start is Enter, B closes it). Returns whether the button was taken.
+pub(in crate::game) fn menu_button(game: &mut Game<'_>, button: Button, down: bool) -> bool {
+    if !MOD_KEYBOARD.load(Ordering::Relaxed) && game.pad.menu.osk.is_some() {
+        return false;
+    }
+    if game.pad.menu.osk.is_none() {
+        MOD_KEYBOARD.store(false, Ordering::Relaxed);
+    }
+    if !down || button != Button::Select || game.pad.menu.osk.is_some() || !mod_screen_open(game) {
+        return false;
+    }
+    game.pad.menu.osk = Some(horizon_client::osk::Keyboard::default());
+    MOD_KEYBOARD.store(true, Ordering::Relaxed);
+    true
+}
+
+/// Whether the screen under the keyboard can still be typed in: a mod's screen can, while the
+/// keyboard we opened for it is up. `None` leaves the game's own answer.
+pub(in crate::game) fn typing_screen(game: &Game<'_>) -> Option<bool> {
+    (MOD_KEYBOARD.load(Ordering::Relaxed) && mod_screen_open(game)).then_some(true)
+}
+
+/// A key of the keyboard we opened over a mod's screen, sent to that screen as the keyboard's
+/// own key would be. Returns whether it was ours.
+pub(in crate::game) fn keyboard_output(game: &mut Game<'_>, out: &horizon_client::osk::Output) -> bool {
+    use horizon_client::osk::Output;
+    use winit::keyboard::KeyCode;
+    if !MOD_KEYBOARD.load(Ordering::Relaxed) {
+        return false;
+    }
+    let close = |game: &mut Game<'_>| {
+        game.pad.menu.osk = None;
+        MOD_KEYBOARD.store(false, Ordering::Relaxed);
+    };
+    if !mod_screen_open(game) {
+        close(game);
+        return true;
+    }
+    match out {
+        Output::Text(text) => game.screen_chars_typed(Some(text.as_str())),
+        Output::Backspace => {
+            game.screen_key_pressed(KeyCode::Backspace, false);
+        }
+        Output::Enter => {
+            game.screen_key_pressed(KeyCode::Enter, false);
+            close(game);
+        }
+        Output::Close => close(game),
+    }
+    true
 }

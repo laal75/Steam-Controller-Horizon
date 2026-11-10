@@ -137,7 +137,7 @@ impl Default for Config {
             trackpad_momentum: true,
             momentum_friction: 5.0,
             trackpad_invert_y: false,
-            trackpad_deadzone: 300.0,
+            trackpad_deadzone: 120.0,
             trackpad_smoothing: 0.35,
             gyro: Gyro::Off,
             gyro_sensitivity: 1.5,
@@ -232,6 +232,11 @@ impl Config {
         // Version 3: the Steam button shows the on-screen controls, and the game's bindings go
         // to Controlify's layout once.
         // Version 4: the grips swapped (left jumps, right sprints).
+        // Version 6: the look is One Euro filtered; its deadzone only catches leftover drift, so
+        // the old step deadzone's 300 (about a degree a step: wobbly slow aim) becomes 120.
+        if version < 6 && (c.trackpad_deadzone - 300.0).abs() < 0.5 {
+            c.trackpad_deadzone = 120.0;
+        }
         // Version 5: lighter smoothing (0.7 lagged the view by ~30-55 ms).
         if version < 5 && (c.trackpad_smoothing - 0.7).abs() < 0.01 {
             c.trackpad_smoothing = 0.35;
@@ -268,7 +273,7 @@ impl Config {
             "# Steam Controller settings (Horizon mod steam_controller). Saved changes apply within\n\
              # two seconds, no restart needed.\n\
              \n\
-             settings_version = 5\n\
+             settings_version = 6\n\
              \n\
              # on: read the controller even while Steam is open (as Controlify does).\n\
              # auto: only while Steam is closed. off: never.\n\
@@ -284,10 +289,11 @@ impl Config {
              trackpad_momentum = {}\n\
              momentum_friction = {}\n\
              trackpad_invert_y = {}\n\
-             # Pad units (the pad is 65536 wide) the thumb moves before the view turns; raise it\n\
-             # if a resting thumb still wobbles the view, lower it for finer aim.\n\
+             # Pad units (the pad is 65536 wide) the filtered thumb moves before the view turns;\n\
+             # raise it if a resting thumb still drifts the view.\n\
              trackpad_deadzone = {}\n\
-             # 0 to 0.95: higher is smoother but a little slower to follow.\n\
+             # 0 to 0.95: how hard a slow or resting thumb's wobble is smoothed (a fast turn\n\
+             # is never held back). Raise it if the view still wobbles.\n\
              trackpad_smoothing = {}\n\
              \n\
              # Gyro aiming: off, touch (while a thumb rests on the right pad), always.\n\
@@ -665,6 +671,87 @@ mod reader {
     /// Raw accelerometer and gyro in the input report.
     const IMU_RAW_ACCEL_AND_GYRO: u8 = 0x18;
 
+    /// The One Euro filter (Casiez, Roussel, Vogel 2012) on one axis: a low-pass whose cutoff
+    /// rises with speed, so a still thumb's jitter is smoothed away and a moving one isn't lagged.
+    #[derive(Clone, Copy)]
+    struct OneEuro {
+        x: f32,
+        dx: f32,
+    }
+
+    impl OneEuro {
+        /// How much the cutoff rises per pad unit a second (~1000 units a millimetre).
+        const BETA: f32 = 0.0006;
+        /// The speed estimate's own cutoff, Hz.
+        const D_CUTOFF: f32 = 1.0;
+
+        fn new(x: f32) -> Self {
+            Self { x, dx: 0.0 }
+        }
+
+        fn alpha(cutoff: f32, dt: f32) -> f32 {
+            let tau = 1.0 / (2.0 * std::f32::consts::PI * cutoff);
+            1.0 / (1.0 + tau / dt)
+        }
+
+        fn step(&mut self, raw: f32, dt: f32, min_cutoff: f32) -> f32 {
+            let speed = (raw - self.x) / dt;
+            let a_d = Self::alpha(Self::D_CUTOFF, dt);
+            self.dx = a_d * speed + (1.0 - a_d) * self.dx;
+            let cutoff = min_cutoff + Self::BETA * self.dx.abs();
+            let a = Self::alpha(cutoff, dt);
+            self.x = a * raw + (1.0 - a) * self.x;
+            self.x
+        }
+    }
+
+    #[cfg(test)]
+    mod one_euro_tests {
+        use super::OneEuro;
+
+        /// The default smoothing's cutoff (`trackpad_smoothing = 0.35`).
+        const MIN_CUTOFF: f32 = 0.3 + 0.65 * 1.1;
+
+        fn noise(seed: &mut u32, amp: u32) -> f32 {
+            *seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+            ((*seed >> 8) % (2 * amp + 1)) as f32 - amp as f32
+        }
+
+        /// A resting thumb, ±100 units of jitter at 111 Hz for 2 s, started from the average of
+        /// its first 6 reports: the filtered point stays inside the 120-unit deadzone.
+        #[test]
+        fn resting_jitter_stays_inside_the_deadzone() {
+            for start in 1..20u32 {
+                let mut seed = start;
+                let first: Vec<f32> = (0..6).map(|_| noise(&mut seed, 100)).collect();
+                let rest = first.iter().sum::<f32>() / 6.0;
+                let mut f = OneEuro::new(rest);
+                let mut widest = 0.0f32;
+                for _ in 0..222 {
+                    let x = f.step(noise(&mut seed, 100), 0.009, MIN_CUTOFF);
+                    widest = widest.max((x - rest).abs());
+                }
+                assert!(widest < 120.0, "seed {start}: drifted {widest}");
+            }
+        }
+
+        /// A steady swipe of 20 mm/s (20000 units/s): after 0.2 s it lags by under 25 ms.
+        #[test]
+        fn a_steady_swipe_is_followed() {
+            let mut f = OneEuro::new(0.0);
+            let mut x = 0.0;
+            for i in 1..=22 {
+                x = f.step(20000.0 * 0.009 * i as f32, 0.009, MIN_CUTOFF);
+            }
+            let truth = 20000.0 * 0.009 * 22.0;
+            let lag_ms = (truth - x) / 20000.0 * 1000.0;
+            assert!(lag_ms < 25.0, "lags {lag_ms} ms");
+        }
+    }
+
+    /// Reports averaged for where a thumb that just touched the right pad rests (~54 ms).
+    const SETTLE_REPORTS: u8 = 6;
+
     /// Gyro full scale: ±2000 degrees per second over ±32768.
     const GYRO_DPS: f32 = 2000.0 / 32768.0;
 
@@ -692,8 +779,10 @@ mod reader {
         velocity: [f32; 2],
         /// Reports since the thumb touched the right pad.
         touch_reports: u8,
-        /// Turn not yet handed out (the smoothing's).
-        pending: [f32; 2],
+        /// The right pad's point, filtered (x, y).
+        filters: [OneEuro; 2],
+        /// The filtered point the view last turned to.
+        anchor: [f32; 2],
         /// When the thumb last moved past the deadzone.
         last_motion: Option<Instant>,
         last_report: Option<Instant>,
@@ -869,7 +958,6 @@ mod reader {
             if !playing {
                 self.right_last = None;
                 self.velocity = [0.0; 2];
-                self.pending = [0.0; 2];
                 return;
             }
             // Degrees per pad unit: the whole width is 65536 units.
@@ -877,31 +965,58 @@ mod reader {
             let invert = if config.trackpad_invert_y { -1.0 } else { 1.0 };
             if touching {
                 let now = self.right_pad;
+                let raw = [f32::from(now[0]), f32::from(now[1])];
+                // The report interval (~9 ms on the dongle) when the reader didn't time it.
+                let step = if dt > 0.0 { dt } else { 0.009 };
                 match self.right_last {
-                    // Touch-down: the anchor, nothing turns yet.
+                    // Touch-down: the filters and the anchor start here, nothing turns yet.
                     None => {
                         self.right_last = Some(now);
                         self.touch_reports = 0;
                         self.velocity = [0.0; 2];
                         self.last_motion = None;
+                        self.filters = [OneEuro::new(raw[0]), OneEuro::new(raw[1])];
+                        self.anchor = raw;
                     }
-                    Some(anchor) => {
+                    Some(last) => {
                         self.touch_reports = self.touch_reports.saturating_add(1);
-                        let dx = f32::from(now[0]) - f32::from(anchor[0]);
-                        let dy = f32::from(now[1]) - f32::from(anchor[1]);
-                        if dx.abs() >= 16000.0 || dy.abs() >= 16000.0 || self.touch_reports <= 2 {
-                            // A jump this big is a new touch the firmware didn't report as one;
-                            // and the first reports after touch-down are the thumb settling.
-                            self.right_last = Some(now);
-                        } else if dx.hypot(dy) >= config.trackpad_deadzone {
-                            // Past the deadzone from where the thumb rested: the whole way
-                            // turns, and the rest point moves along. A still thumb's jitter
-                            // never gets this far.
-                            self.right_last = Some(now);
+                        let jump = (f32::from(now[0]) - f32::from(last[0])).abs() >= 16000.0
+                            || (f32::from(now[1]) - f32::from(last[1])).abs() >= 16000.0;
+                        self.right_last = Some(now);
+                        if jump {
+                            // A jump this big is a new touch the firmware didn't report as one.
+                            self.touch_reports = 0;
+                            self.anchor = raw;
+                            return self.gyro_look(config, dt, touching, look);
+                        }
+                        if self.touch_reports < SETTLE_REPORTS {
+                            // The thumb settling: where it rests is the average of its first
+                            // reports, so the filter doesn't start from one noisy reading and
+                            // drift the view on its way to the real point.
+                            self.anchor[0] += raw[0];
+                            self.anchor[1] += raw[1];
+                            if self.touch_reports + 1 == SETTLE_REPORTS {
+                                let n = f32::from(SETTLE_REPORTS);
+                                self.anchor = [self.anchor[0] / n, self.anchor[1] / n];
+                                self.filters =
+                                    [OneEuro::new(self.anchor[0]), OneEuro::new(self.anchor[1])];
+                            }
+                            return self.gyro_look(config, dt, touching, look);
+                        }
+                        // One Euro filter: heavy smoothing while the thumb barely moves (its
+                        // wobble), almost none once it really moves (no lag on a turn).
+                        let min_cutoff = 0.3 + (1.0 - config.trackpad_smoothing) * 1.1;
+                        let fx = self.filters[0].step(raw[0], step, min_cutoff);
+                        let fy = self.filters[1].step(raw[1], step, min_cutoff);
+                        let dx = fx - self.anchor[0];
+                        let dy = fy - self.anchor[1];
+                        // A small deadzone on the filtered point catches what slow drift is left.
+                        if dx.hypot(dy) >= config.trackpad_deadzone {
+                            self.anchor = [fx, fy];
                             // Finger up looks up: the game's y turns the view down.
                             let turn = [dx * scale, -dy * scale * invert];
-                            self.pending[0] += turn[0];
-                            self.pending[1] += turn[1];
+                            look[0] += turn[0];
+                            look[1] += turn[1];
                             let at = Instant::now();
                             let span = self
                                 .last_motion
@@ -938,14 +1053,11 @@ mod reader {
                     }
                 }
             }
-            // The trackpad's turn comes out smoothed: a part of what's waiting each report.
-            let out = 1.0 - config.trackpad_smoothing;
-            look[0] += self.pending[0] * out;
-            look[1] += self.pending[1] * out;
-            self.pending = self.pending.map(|p| {
-                let rest = p * config.trackpad_smoothing;
-                if rest.abs() < 0.001 { 0.0 } else { rest }
-            });
+            self.gyro_look(config, dt, touching, look);
+        }
+
+        /// The gyro's part of the look, when it's on.
+        fn gyro_look(&mut self, config: &Config, dt: f32, touching: bool, look: &mut [f32; 2]) {
             let gyro_on = match config.gyro {
                 Gyro::Off => false,
                 Gyro::Always => true,
@@ -1251,7 +1363,8 @@ mod reader {
                                     right_last: None,
                                     velocity: [0.0; 2],
                                     touch_reports: 0,
-                                    pending: [0.0; 2],
+                                    filters: [OneEuro::new(0.0), OneEuro::new(0.0)],
+                                    anchor: [0.0; 2],
                                     last_motion: None,
                                     last_report: None,
                                     last_touch: None,
