@@ -1,0 +1,13 @@
+# Signs the mod's packs for the Horizon registry, in minisign's format (legacy Ed25519 signatures,
+# which the registry and launcher accept). The secret key stays in the user's profile, never here.
+[package]
+name = "horizon-sign"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+ring = "0.17.14"
+base64 = "0.22.1"
+minisign-verify = "0.3.0"

@@ -1,0 +1,4 @@
+*.hnmod binary
+*.minisig -text
+minisign.pub -text
+*.png binary

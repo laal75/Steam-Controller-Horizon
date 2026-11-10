@@ -1,0 +1,18 @@
+# The Horizon registry page for this mod (docs/api/mod-index.md, "horizon-registry.toml").
+name = "Steam Controller"
+summary = "The original Steam Controller as a full Horizon controller, with or without Steam: trackpad look, Controlify's layout, on-screen controls."
+description = """
+Plays Horizon with the original **Steam Controller** (2015), wired or through its wireless dongle, read straight over HID as Controlify does.
+
+- **Right trackpad looks around** like a trackball, with a deadzone for a resting thumb, light smoothing and optional momentum.
+- **Controlify's button layout**: A jump, X swap hands, Y inventory, triggers use/attack, bumpers change slot, d-pad down drop. The left trackpad is the d-pad and the grips are jump and sprint.
+- **On-screen controls**: each hand's buttons in its corner, as they're bound. The Steam button shows or hides them.
+- **Works with Steam open**: the keys and mouse movement Steam's Desktop layout makes from the controller are filtered out.
+- **Alt-Tab from the controller**: hold the Steam button and click the left trackpad right or left.
+- **Rumble** on the trackpads' haptics, optional gyro aiming, and a filled block highlight in place of the outline.
+- **Every setting** is in Options > Mods > Steam Controller > Settings.
+
+Native mod for Windows (Linux and macOS should work but are untested). Lizard mode, the controller's own mouse and keyboard, is switched off while the game has focus and back on when it loses it.
+"""
+authors = ["laal75"]
+license = "MIT"

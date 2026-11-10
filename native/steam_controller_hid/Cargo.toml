@@ -1,0 +1,14 @@
+# The Steam Controller (2015, "Steam Controller 1") over raw HID: lizard mode off, its input
+# reports parsed, trackpad/gyro look accumulated, haptic pulses, and the settings file.
+# No Cargo.lock: the stage resolves against Horizon's (hidapi 2.6.7 is already there for the
+# DualSense).
+[package]
+name = "steam-controller-hid"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Steam Controller support for Horizon: raw HID input, trackpads, gyro and haptics"
+
+[dependencies]
+log = "0.4"
+hidapi = { version = "2.6.7", default-features = false, features = ["linux-static-hidraw", "macos-shared-device"] }

@@ -1,0 +1,4 @@
+/past-backups/
+/tools/sign/target/
+__pycache__/
+*.key

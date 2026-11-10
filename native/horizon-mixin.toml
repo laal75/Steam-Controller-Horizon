@@ -1,0 +1,149 @@
+# Steam Controller: the original Steam Controller (2015) as a full Horizon controller, read over
+# HID as Controlify does (SDL's HIDAPI Steam driver), with or without Steam open. Lizard mode
+# off while the game has focus; buttons, triggers and stick as a pad (Controlify's layout);
+# left trackpad as the d-pad; right trackpad as a trackball for the view; gyro aiming optional;
+# rumble on the pads' haptics; Steam's Desktop-layout echo filtered; on-screen controls; a filled
+# block highlight. Settings: config/steam_controller.txt.
+# Build with `horizon-launcher native-build <folder> --instance <id> --trust-native-code`.
+[mod]
+id = "steam_controller"
+version = "0.4.0"
+
+# The same Horizon as the user's other mods, so they build into one game.
+[compatibility]
+horizon_revision = "fdc87aecdbd116bf1e08adcd062fcbaea8c2e2ca"
+
+# The controller over HID (hidapi, already in Horizon's lock file) and the settings file.
+[[crate]]
+id = "steam_controller_hid"
+path = "steam_controller_hid"
+
+# The glue, a module of game.rs: `crate::game::steam_controller`.
+[[module]]
+id = "runtime"
+file = "crates/horizon-client/src/game.rs"
+name = "steam_controller"
+source = "runtime.rs"
+
+# Each poll of the pads: start the reader, pass focus and whether the player is in a menu, and
+# while the Steam Controller is in use hand the poll its state (the pads' `feed`, read instead
+# of gilrs; the gilrs reader itself is behind a cfg and can't be a target).
+[[injection]]
+id = "frame"
+target = "horizon_client::game::pad::Game<'_>::poll_pads"
+kind = "HEAD"
+helper = "frame.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Each frame in the world: the trackball and gyro turn the view.
+[[injection]]
+id = "look"
+target = "horizon_client::game::pad::Game<'_>::pad_look"
+kind = "HEAD"
+helper = "look.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Mouse look: dropped while the right pad turns the view, so Steam's Desktop layout (Steam open,
+# as Controlify allows) doesn't turn it twice.
+[[injection]]
+id = "mouse_look"
+target = "horizon_client::game::pointer_capture::Game<'_>::apply_mouse_look"
+kind = "HEAD"
+cancellable = true
+helper = "mouse_look.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+# Rumble goes to the Steam Controller's haptics while it plays.
+[[injection]]
+id = "vibrate"
+target = "horizon_client::game::pad::Game<'_>::pad_rumble"
+kind = "HEAD"
+cancellable = true
+helper = "vibrate.rs"
+bindings = [
+    { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+    { name = "rumble", ty = "&horizon_client::gamepad::Rumble", value = "&rumble" },
+]
+
+# Quitting: lizard mode back on.
+[[injection]]
+id = "close"
+target = "horizon_client::game::Game<'_>::shut_down"
+kind = "HEAD"
+helper = "close.rs"
+bindings = []
+
+# Window events, before the game: Steam's Desktop-layout echo of the controller is dropped.
+[[injection]]
+id = "filter"
+target = "horizon_client::game::Game<'_>::handle_window_event"
+kind = "HEAD"
+cancellable = true
+helper = "filter.rs"
+bindings = [
+    { name = "event", ty = "&winit::event::WindowEvent", value = "&event" },
+    { name = "origin", ty = "&crate::game::input_trace::InputOrigin", value = "&origin" },
+]
+
+# Mouse motion doesn't take the pad out of use when it is Steam's echo.
+[[injection]]
+id = "keep_pad"
+target = "horizon_client::game::pad::Game<'_>::pad_yield_input"
+kind = "HEAD"
+cancellable = true
+helper = "keep_pad.rs"
+bindings = []
+
+# The on-screen controls, over the whole GUI.
+[[injection]]
+id = "overlay"
+hook = "gui_render_post"
+hook_version = 1
+kind = "HEAD"
+helper = "overlay.rs"
+bindings = [
+    { name = "game", ty = "&crate::game::Game<'_>", value = "self" },
+    { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+    { name = "gui_hidden", ty = "bool", value = "gui_hidden" },
+]
+
+# ---- Options > Mods > Steam Controller ----
+
+[[injection]]
+id = "mods_row"
+hook = "mods"
+hook_version = 1
+kind = "HEAD"
+helper = "mods_row.rs"
+bindings = [
+    { name = "mods", ty = "&mut Vec<crate::mod_api::NativeMod>", value = "&mut *mods" },
+]
+
+[[injection]]
+id = "settings"
+hook = "settings"
+hook_version = 1
+kind = "HEAD"
+helper = "settings.rs"
+bindings = [
+    { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+    { name = "mod_id", ty = "&str", value = "mod_id" },
+    { name = "buttons", ty = "&mut Vec<String>", value = "&mut *buttons" },
+]
+
+[[injection]]
+id = "settings_click"
+hook = "settings_click"
+hook_version = 1
+kind = "HEAD"
+helper = "settings_click.rs"
+bindings = [
+    { name = "mod_id", ty = "&str", value = "mod_id" },
+    { name = "button", ty = "usize", value = "button" },
+]
