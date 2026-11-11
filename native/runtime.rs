@@ -556,7 +556,8 @@ const BUTTON_CHOICES: &[&str] = &[
     "select", "none",
 ];
 const SENSITIVITIES: &[f32] = &[100.0, 140.0, 180.0, 220.0, 280.0, 350.0, 450.0];
-const DEADZONES: &[f32] = &[0.0, 60.0, 90.0, 120.0, 160.0, 220.0, 300.0];
+const DEADZONES: &[f32] = &[0.0, 60.0, 100.0, 150.0, 200.0, 300.0, 450.0];
+const VERTICAL_DEADZONES: &[f32] = &[0.0, 300.0, 450.0, 600.0, 800.0, 1000.0, 1300.0];
 const SMOOTHINGS: &[f32] = &[0.0, 0.2, 0.35, 0.5, 0.7];
 const FRICTIONS: &[f32] = &[2.0, 3.5, 5.0, 8.0, 12.0];
 const GYRO_SENSITIVITIES: &[f32] = &[0.5, 1.0, 1.5, 2.0, 3.0, 4.0];
@@ -661,8 +662,11 @@ fn page(game: Option<&Game<'_>>, c: &sc::Config) -> Vec<Row> {
         row(format!("Look speed: {}", c.trackpad_sensitivity), |c| {
             c.trackpad_sensitivity = next_number(SENSITIVITIES, c.trackpad_sensitivity)
         }),
-        row(format!("Look deadzone: {}", c.trackpad_deadzone), |c| {
+        row(format!("Look slack left/right: {}", c.trackpad_deadzone), |c| {
             c.trackpad_deadzone = next_number(DEADZONES, c.trackpad_deadzone)
+        }),
+        row(format!("Look slack up/down: {}", c.trackpad_deadzone_vertical), |c| {
+            c.trackpad_deadzone_vertical = next_number(VERTICAL_DEADZONES, c.trackpad_deadzone_vertical)
         }),
         row(format!("Look smoothing: {}", c.trackpad_smoothing), |c| {
             c.trackpad_smoothing = next_number(SMOOTHINGS, c.trackpad_smoothing)
@@ -799,7 +803,7 @@ pub(in crate::game) fn mods_row(mods: &mut Vec<crate::mod_api::NativeMod>) {
     }
     mods.push(crate::mod_api::NativeMod {
         id: MOD_ID.to_owned(),
-        title: "Steam Controller 0.5.1".to_owned(),
+        title: "Steam Controller 0.5.2".to_owned(),
         description: "The original Steam Controller as a full controller: trackpad look, \
                       Controlify's layout, on-screen controls, filled block highlight."
             .to_owned(),

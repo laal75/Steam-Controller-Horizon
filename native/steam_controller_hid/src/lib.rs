@@ -93,9 +93,11 @@ pub struct Config {
     /// How fast a flicked trackball slows down (higher stops sooner).
     pub momentum_friction: f32,
     pub trackpad_invert_y: bool,
-    /// How far (pad units, the pad is 65536 wide) the thumb has to move before the view turns:
-    /// a resting thumb's wobble stays inside it.
+    /// The look's slack left/right, in pad units (the pad is 65536 wide): a resting thumb's
+    /// wobble inside it turns nothing; past it the view follows the thumb.
     pub trackpad_deadzone: f32,
+    /// The same up/down, wider: a resting thumb rocks more that way.
+    pub trackpad_deadzone_vertical: f32,
     /// 0 hands each move straight to the view; towards 1 spreads it over more reports.
     pub trackpad_smoothing: f32,
     pub gyro: Gyro,
@@ -155,7 +157,8 @@ impl Default for Config {
             trackpad_momentum: true,
             momentum_friction: 8.0,
             trackpad_invert_y: false,
-            trackpad_deadzone: 160.0,
+            trackpad_deadzone: 150.0,
+            trackpad_deadzone_vertical: 600.0,
             trackpad_smoothing: 0.7,
             gyro: Gyro::Off,
             gyro_sensitivity: 1.5,
@@ -217,6 +220,9 @@ impl Config {
                 "momentum_friction" => c.momentum_friction = number(c.momentum_friction).clamp(0.5, 50.0),
                 "trackpad_invert_y" => c.trackpad_invert_y = flag(c.trackpad_invert_y),
                 "trackpad_deadzone" => c.trackpad_deadzone = number(c.trackpad_deadzone).clamp(0.0, 4000.0),
+                "trackpad_deadzone_vertical" => {
+                    c.trackpad_deadzone_vertical = number(c.trackpad_deadzone_vertical).clamp(0.0, 4000.0)
+                }
                 "trackpad_smoothing" => c.trackpad_smoothing = number(c.trackpad_smoothing).clamp(0.0, 0.95),
                 "gyro" => {
                     c.gyro = match value.as_str() {
@@ -265,6 +271,14 @@ impl Config {
         // Version 3: the Steam button shows the on-screen controls, and the game's bindings go
         // to Controlify's layout once.
         // Version 4: the grips swapped (left jumps, right sprints).
+        // Version 8: the look's deadzone is per-axis slack, tuned on a recording of the author's
+        // resting thumb; the old single deadzone's 120 or 160 becomes 150 left/right (up/down
+        // gets its own, 600, by default).
+        if version < 8
+            && ((c.trackpad_deadzone - 160.0).abs() < 0.5 || (c.trackpad_deadzone - 120.0).abs() < 0.5)
+        {
+            c.trackpad_deadzone = 150.0;
+        }
         // Version 7: the author's tuned look (smoother, a wider deadzone, momentum that stops
         // sooner) replaces the version 6 defaults where those were still set.
         if version < 7 {
@@ -319,7 +333,7 @@ impl Config {
             "# Steam Controller settings (Horizon mod steam_controller). Saved changes apply within\n\
              # two seconds, no restart needed.\n\
              \n\
-             settings_version = 7\n\
+             settings_version = 8\n\
              \n\
              # on: read the controller even while Steam is open (as Controlify does).\n\
              # auto: only while Steam is closed. off: never.\n\
@@ -335,9 +349,11 @@ impl Config {
              trackpad_momentum = {}\n\
              momentum_friction = {}\n\
              trackpad_invert_y = {}\n\
-             # Pad units (the pad is 65536 wide) the filtered thumb moves before the view turns;\n\
-             # raise it if a resting thumb still drifts the view.\n\
+             # Slack in pad units (the pad is 65536 wide): a resting thumb's wobble inside it\n\
+             # turns nothing, past it the view follows. Left/right, then up/down (a thumb\n\
+             # rocks more that way). Raise one if the view still jiggles along that axis.\n\
              trackpad_deadzone = {}\n\
+             trackpad_deadzone_vertical = {}\n\
              # 0 to 0.95: how hard a slow or resting thumb's wobble is smoothed (a fast turn\n\
              # is never held back). Raise it if the view still wobbles.\n\
              trackpad_smoothing = {}\n\
@@ -386,6 +402,7 @@ impl Config {
             self.momentum_friction,
             self.trackpad_invert_y,
             self.trackpad_deadzone,
+            self.trackpad_deadzone_vertical,
             self.trackpad_smoothing,
             self.gyro_sensitivity,
             self.gyro_invert_x,
@@ -776,7 +793,7 @@ mod reader {
         }
 
         /// A resting thumb, ±100 units of jitter at 111 Hz for 2 s, started from the average of
-        /// its first 6 reports: the filtered point stays inside the 160-unit deadzone.
+        /// its first 6 reports: the filtered point stays inside the 150-unit left/right slack.
         #[test]
         fn resting_jitter_stays_inside_the_deadzone() {
             for start in 1..20u32 {
@@ -789,8 +806,26 @@ mod reader {
                     let x = f.step(noise(&mut seed, 100), 0.009, MIN_CUTOFF);
                     widest = widest.max((x - rest).abs());
                 }
-                assert!(widest < 160.0, "seed {start}: drifted {widest}");
+                assert!(widest < 150.0, "seed {start}: drifted {widest}");
             }
+        }
+
+        /// The author's resting thumb, as recorded: up/down it rocks about 1,000 units at 2.5 Hz
+        /// (plus ±150 of reading noise). Filtered, it stays inside the 600-unit vertical slack,
+        /// so the view doesn't move.
+        #[test]
+        fn a_rocking_thumb_stays_inside_the_vertical_slack() {
+            let mut seed = 7u32;
+            let rest = 0.0f32;
+            let mut f = OneEuro::new(rest);
+            let mut widest = 0.0f32;
+            for i in 0..444 {
+                let t = i as f32 * 0.009;
+                let wave = 500.0 * (2.0 * std::f32::consts::PI * 2.5 * t).sin();
+                let x = f.step(wave + noise(&mut seed, 150), 0.009, MIN_CUTOFF);
+                widest = widest.max((x - rest).abs());
+            }
+            assert!(widest < 600.0, "rocked {widest}");
         }
 
         /// A steady swipe of 20 mm/s (20000 units/s): after 0.2 s it lags by under 25 ms.
@@ -1066,11 +1101,25 @@ mod reader {
                         let min_cutoff = 0.3 + (1.0 - config.trackpad_smoothing) * 1.1;
                         let fx = self.filters[0].step(raw[0], step, min_cutoff);
                         let fy = self.filters[1].step(raw[1], step, min_cutoff);
-                        let dx = fx - self.anchor[0];
-                        let dy = fy - self.anchor[1];
-                        // A small deadzone on the filtered point catches what slow drift is left.
-                        if dx.hypot(dy) >= config.trackpad_deadzone {
-                            self.anchor = [fx, fy];
+                        // Slack, per axis: the view hangs from the thumb on a short rope. A
+                        // resting thumb's rocking (up/down by 1-2 mm, a few times a second, in
+                        // the author's recording) stays inside it and turns nothing; a real move
+                        // takes the slack up and the view follows it smoothly, without steps.
+                        let pull = |anchor: f32, at: f32, slack: f32| {
+                            if at - anchor > slack {
+                                at - slack
+                            } else if anchor - at > slack {
+                                at + slack
+                            } else {
+                                anchor
+                            }
+                        };
+                        let nx = pull(self.anchor[0], fx, config.trackpad_deadzone);
+                        let ny = pull(self.anchor[1], fy, config.trackpad_deadzone_vertical);
+                        let dx = nx - self.anchor[0];
+                        let dy = ny - self.anchor[1];
+                        if dx != 0.0 || dy != 0.0 {
+                            self.anchor = [nx, ny];
                             // Finger up looks up: the game's y turns the view down.
                             let turn = [dx * scale, -dy * scale * invert];
                             look[0] += turn[0];

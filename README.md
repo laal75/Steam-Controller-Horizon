@@ -118,7 +118,8 @@ The same settings are in `config/steam_controller.txt` in the instance folder. I
 | `trackpad_momentum` | `true` | keep turning after a flick |
 | `momentum_friction` | `8` | higher stops sooner |
 | `trackpad_invert_y` | `false` | |
-| `trackpad_deadzone` | `160` | pad units the filtered thumb moves before the view turns (the pad is 65536 wide) |
+| `trackpad_deadzone` | `150` | the look's slack left/right, in pad units (the pad is 65536 wide): a resting thumb's wobble inside it turns nothing |
+| `trackpad_deadzone_vertical` | `600` | the same up/down: a resting thumb rocks more that way (1-2 mm in the author's recording) |
 | `trackpad_smoothing` | `0.7` | 0 to 0.95: how hard a slow thumb's wobble is smoothed (One Euro filter; fast turns are never held back) |
 | `gyro` | `off` | `off`, `touch`, `always` |
 | `gyro_sensitivity` | `1.5` | 1.0 = the view turns as far as the controller |
