@@ -7,7 +7,7 @@
 # Build with `horizon-launcher native-build <folder> --instance <id> --trust-native-code`.
 [mod]
 id = "steam_controller"
-version = "0.5.0"
+version = "0.5.1"
 
 # The same Horizon as the user's other mods, so they build into one game.
 [compatibility]

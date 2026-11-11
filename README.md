@@ -116,15 +116,15 @@ The same settings are in `config/steam_controller.txt` in the instance folder. I
 | `left_pad` | `click` | `click`, `touch`, `off` |
 | `trackpad_sensitivity` | `220` | degrees for a swipe across the whole pad |
 | `trackpad_momentum` | `true` | keep turning after a flick |
-| `momentum_friction` | `5` | higher stops sooner |
+| `momentum_friction` | `8` | higher stops sooner |
 | `trackpad_invert_y` | `false` | |
-| `trackpad_deadzone` | `120` | pad units the filtered thumb moves before the view turns (the pad is 65536 wide) |
-| `trackpad_smoothing` | `0.35` | 0 to 0.95: how hard a slow thumb's wobble is smoothed (One Euro filter; fast turns are never held back) |
+| `trackpad_deadzone` | `160` | pad units the filtered thumb moves before the view turns (the pad is 65536 wide) |
+| `trackpad_smoothing` | `0.7` | 0 to 0.95: how hard a slow thumb's wobble is smoothed (One Euro filter; fast turns are never held back) |
 | `gyro` | `off` | `off`, `touch`, `always` |
 | `gyro_sensitivity` | `1.5` | 1.0 = the view turns as far as the controller |
 | `gyro_invert_x` / `gyro_invert_y` | `false` | |
-| `haptics` | `true` | vibration must also be on in the game's controller settings |
-| `haptic_strength` | `1.0` | 0 to 3 |
+| `haptics` | `false` | vibration must also be on in the game's controller settings |
+| `haptic_strength` | `3` | 0 to 3 |
 | `overlay` | `true` | on-screen controls |
 | `block_highlight` | `fill` | `fill` or `outline` |
 | `block_highlight_colour` | `white` | `white red orange yellow green cyan blue magenta black inverted` |

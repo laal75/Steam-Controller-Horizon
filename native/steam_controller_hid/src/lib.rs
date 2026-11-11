@@ -153,16 +153,16 @@ impl Default for Config {
             left_pad: LeftPad::Click,
             trackpad_sensitivity: 220.0,
             trackpad_momentum: true,
-            momentum_friction: 5.0,
+            momentum_friction: 8.0,
             trackpad_invert_y: false,
-            trackpad_deadzone: 120.0,
-            trackpad_smoothing: 0.35,
+            trackpad_deadzone: 160.0,
+            trackpad_smoothing: 0.7,
             gyro: Gyro::Off,
             gyro_sensitivity: 1.5,
             gyro_invert_x: false,
             gyro_invert_y: false,
-            haptics: true,
-            haptic_strength: 1.0,
+            haptics: false,
+            haptic_strength: 3.0,
             left_grip: "south".into(),
             right_grip: "ls".into(),
             right_pad_click: "rs".into(),
@@ -265,6 +265,19 @@ impl Config {
         // Version 3: the Steam button shows the on-screen controls, and the game's bindings go
         // to Controlify's layout once.
         // Version 4: the grips swapped (left jumps, right sprints).
+        // Version 7: the author's tuned look (smoother, a wider deadzone, momentum that stops
+        // sooner) replaces the version 6 defaults where those were still set.
+        if version < 7 {
+            if (c.trackpad_smoothing - 0.35).abs() < 0.01 {
+                c.trackpad_smoothing = 0.7;
+            }
+            if (c.trackpad_deadzone - 120.0).abs() < 0.5 {
+                c.trackpad_deadzone = 160.0;
+            }
+            if (c.momentum_friction - 5.0).abs() < 0.01 {
+                c.momentum_friction = 8.0;
+            }
+        }
         // Version 6: the look is One Euro filtered; its deadzone only catches leftover drift, so
         // the old step deadzone's 300 (about a degree a step: wobbly slow aim) becomes 120.
         if version < 6 && (c.trackpad_deadzone - 300.0).abs() < 0.5 {
@@ -306,7 +319,7 @@ impl Config {
             "# Steam Controller settings (Horizon mod steam_controller). Saved changes apply within\n\
              # two seconds, no restart needed.\n\
              \n\
-             settings_version = 6\n\
+             settings_version = 7\n\
              \n\
              # on: read the controller even while Steam is open (as Controlify does).\n\
              # auto: only while Steam is closed. off: never.\n\
@@ -754,8 +767,8 @@ mod reader {
     mod one_euro_tests {
         use super::OneEuro;
 
-        /// The default smoothing's cutoff (`trackpad_smoothing = 0.35`).
-        const MIN_CUTOFF: f32 = 0.3 + 0.65 * 1.1;
+        /// The default smoothing's cutoff (`trackpad_smoothing = 0.7`).
+        const MIN_CUTOFF: f32 = 0.3 + 0.3 * 1.1;
 
         fn noise(seed: &mut u32, amp: u32) -> f32 {
             *seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
@@ -763,7 +776,7 @@ mod reader {
         }
 
         /// A resting thumb, ±100 units of jitter at 111 Hz for 2 s, started from the average of
-        /// its first 6 reports: the filtered point stays inside the 120-unit deadzone.
+        /// its first 6 reports: the filtered point stays inside the 160-unit deadzone.
         #[test]
         fn resting_jitter_stays_inside_the_deadzone() {
             for start in 1..20u32 {
@@ -776,7 +789,7 @@ mod reader {
                     let x = f.step(noise(&mut seed, 100), 0.009, MIN_CUTOFF);
                     widest = widest.max((x - rest).abs());
                 }
-                assert!(widest < 120.0, "seed {start}: drifted {widest}");
+                assert!(widest < 160.0, "seed {start}: drifted {widest}");
             }
         }
 

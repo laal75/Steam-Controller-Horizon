@@ -799,7 +799,7 @@ pub(in crate::game) fn mods_row(mods: &mut Vec<crate::mod_api::NativeMod>) {
     }
     mods.push(crate::mod_api::NativeMod {
         id: MOD_ID.to_owned(),
-        title: "Steam Controller 0.5.0".to_owned(),
+        title: "Steam Controller 0.5.1".to_owned(),
         description: "The original Steam Controller as a full controller: trackpad look, \
                       Controlify's layout, on-screen controls, filled block highlight."
             .to_owned(),
