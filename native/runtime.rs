@@ -76,6 +76,8 @@ pub(in crate::game) fn frame(game: &mut Game<'_>) {
             Button::parse(&config.steam_button)
         };
     }
+    radial_frame(game, &config, snap, held);
+    keyboard_on_focus(game);
 
     if FED.swap(false, Ordering::Relaxed) {
         game.pad.feed = None;
@@ -129,8 +131,14 @@ fn state_of(snap: &sc::Snapshot, config: &sc::Config, playing: bool) -> PadState
     let mut state = PadState::default();
     let modifier = chord_modifier(config);
     let chording = CHORD_HELD.load(Ordering::Relaxed);
+    // The radial menu takes the left pad (and B, which closes it) while it is open, and the click
+    // or B that opened, ran or closed it until it is let go.
+    let (radial_click, radial_b) = radial_swallows();
+    let swallowed = |bit: u32| {
+        (radial_b && bit == sc::B) || (radial_click && bit == sc::LEFT_PAD_CLICK)
+    };
     // The chord's button presses only on release (`TAP`), so it can lead an Alt-Tab instead.
-    let held = |bit: u32| snap.buttons & bit != 0 && bit != modifier;
+    let held = |bit: u32| snap.buttons & bit != 0 && bit != modifier && !swallowed(bit);
     if let Some(button) = TAP.lock().ok().and_then(|mut t| t.take()) {
         state.set(button, true);
     }
@@ -174,8 +182,9 @@ fn state_of(snap: &sc::Snapshot, config: &sc::Config, playing: bool) -> PadState
         sc::LeftPad::Touch => true,
         sc::LeftPad::Off => false,
     };
-    // While the chord's button is held the left pad picks windows, not the d-pad.
-    if pressed && !chording && let Some([x, y]) = snap.left_pad {
+    // While the chord's button is held the left pad picks windows, not the d-pad; while the
+    // radial menu is open, its slots.
+    if pressed && !chording && !radial_click && let Some([x, y]) = snap.left_pad {
         let length = (x * x + y * y).sqrt();
         if length < 0.3 {
             // The middle: its own button when clicked.
@@ -194,10 +203,10 @@ fn state_of(snap: &sc::Snapshot, config: &sc::Config, playing: bool) -> PadState
         }
     }
 
-    // In menus the right pad scrolls as the right stick; in play it's the trackball (`look`).
-    if !playing && let Some(point) = snap.right_pad {
-        state.right = point;
-    }
+    // In play the right pad is the trackball (`look`). In menus it is not a right stick: a thumb
+    // resting on its edge would be a full push, and in an inventory that moves items between the
+    // slot under the pointer and the hotbar, one at a time.
+    let _ = playing;
     state
 }
 
@@ -441,6 +450,9 @@ fn action_name(action: &str) -> String {
 /// After the whole GUI, in play: each hand's controls in its corner, as they are bound now.
 pub(in crate::game) fn draw_overlay(game: &Game<'_>, batch: &mut HudBatch, gui_hidden: bool) {
     let config = sc::config();
+    if !gui_hidden {
+        draw_radial(game, batch, &config);
+    }
     let shown = config.overlay != OVERLAY_FLIPPED.load(Ordering::Relaxed);
     if !shown || gui_hidden || !in_use() || sc::snapshot().is_none() {
         return;
@@ -461,15 +473,20 @@ pub(in crate::game) fn draw_overlay(game: &Game<'_>, batch: &mut HudBatch, gui_h
     };
     let extra = |name: &str| Button::parse(name).and_then(label);
     let fixed = |text: &str| Some(text.to_owned());
+    // The direction that opens the radial menu shows it instead of its game action.
+    let opener = radial_opener(&config);
+    let dpad = |button: Button| {
+        if opener == Some(button) { Some("Commands".to_owned()) } else { label(button) }
+    };
     let left: Vec<(&str, Option<String>)> = vec![
         ("LT", label(Button::LeftTrigger)),
         ("LB", label(Button::LeftBumper)),
         ("Stick", fixed("Move")),
         ("Click", label(Button::LeftStick)),
-        ("\u{2191}", label(Button::DPadUp)),
-        ("\u{2190}", label(Button::DPadLeft)),
-        ("\u{2192}", label(Button::DPadRight)),
-        ("\u{2193}", label(Button::DPadDown)),
+        ("\u{2191}", dpad(Button::DPadUp)),
+        ("\u{2190}", dpad(Button::DPadLeft)),
+        ("\u{2192}", dpad(Button::DPadRight)),
+        ("\u{2193}", dpad(Button::DPadDown)),
         ("Grip", extra(&config.left_grip)),
         ("View", label(Button::Select)),
     ];
@@ -687,6 +704,31 @@ fn page(game: Option<&Game<'_>>, c: &sc::Config) -> Vec<Row> {
         row(format!("Alt-Tab: {alt_tab}"), |c| {
             c.alt_tab = next_name(&["steam", "back", "off"], &c.alt_tab)
         }),
+        // The radial menu.
+        row(
+            format!(
+                "Radial menu: {}",
+                match c.radial_menu.as_str() {
+                    "up" | "down" | "left" | "right" => format!("left pad click {}", c.radial_menu),
+                    _ => "Off".to_owned(),
+                }
+            ),
+            |c| c.radial_menu = next_name(&["right", "up", "left", "down", "off"], &c.radial_menu),
+        ),
+    ]
+    .into_iter()
+    .chain((0..8).map(|i| {
+        let slot = c.radial[i].trim();
+        let shown = if slot.is_empty() { "Empty" } else { slot };
+        row(format!("Radial {}: {shown}", RADIAL_PLACES[i]), move |c: &mut sc::Config| {
+            // Steps through common commands; anything else is typed in the settings file.
+            c.radial[i] = next_name(RADIAL_PRESETS, c.radial[i].trim());
+        })
+    }))
+    .chain([
+        row("Edit radial commands (opens the settings file)".to_owned(), |_| {
+            open_settings_file()
+        }),
         // Gyro.
         row(format!("Gyro aiming: {gyro}"), |c| {
             c.gyro = match c.gyro {
@@ -713,7 +755,41 @@ fn page(game: Option<&Game<'_>>, c: &sc::Config) -> Vec<Row> {
         row("Reset controller buttons to Controlify's layout".to_owned(), |c| {
             c.controlify_layout_pending = true
         }),
-    ]
+    ])
+    .collect()
+}
+
+/// The commands a radial slot's button steps through ("" is empty; `...` finishes in chat).
+const RADIAL_PRESETS: &[&str] = &[
+    "",
+    "/gamemode creative",
+    "/gamemode survival",
+    "/gamemode spectator",
+    "/home",
+    "/sethome",
+    "/back",
+    "/spawn",
+    "/warp ...",
+    "/tpa ...",
+    "/fly",
+    "/time set day",
+    "/time set night",
+    "/weather clear",
+];
+
+/// The settings file, in the system's text editor (Notepad on Windows): the radial menu's custom
+/// commands are typed there, and saved changes apply within two seconds.
+fn open_settings_file() {
+    let path = sc::config_path();
+    #[cfg(windows)]
+    let opened = std::process::Command::new("notepad").arg(&path).spawn();
+    #[cfg(target_os = "macos")]
+    let opened = std::process::Command::new("open").arg("-t").arg(&path).spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let opened = std::process::Command::new("xdg-open").arg(&path).spawn();
+    if let Err(e) = opened {
+        log::warn!("Steam Controller: opening {}: {e}", path.display());
+    }
 }
 
 /// Options > Mods lists Steam Controller, with a Settings button for the page.
@@ -723,7 +799,7 @@ pub(in crate::game) fn mods_row(mods: &mut Vec<crate::mod_api::NativeMod>) {
     }
     mods.push(crate::mod_api::NativeMod {
         id: MOD_ID.to_owned(),
-        title: "Steam Controller 0.4.1".to_owned(),
+        title: "Steam Controller 0.5.0".to_owned(),
         description: "The original Steam Controller as a full controller: trackpad look, \
                       Controlify's layout, on-screen controls, filled block highlight."
             .to_owned(),
@@ -756,6 +832,31 @@ pub(in crate::game) fn settings_click(mod_id: &str, index: usize) {
 /// We opened Horizon's on-screen keyboard over a mod's screen (Machine Tech's Terminal and Quest
 /// Book, ...): its keys go to that screen as typed characters, Backspace and Enter.
 static MOD_KEYBOARD: AtomicBool = AtomicBool::new(false);
+
+/// A search box had focus at the last poll.
+static TEXT_FOCUS: AtomicBool = AtomicBool::new(false);
+
+/// A mod says one of its own text boxes has focus (Machine Tech's Terminal search sets
+/// `HORIZON_PAD_TEXT_FOCUS=1` while its box takes typing, and clears it after): the mod API has no
+/// call for it yet.
+fn mod_text_focus() -> bool {
+    std::env::var_os("HORIZON_PAD_TEXT_FOCUS").is_some_and(|v| v == "1")
+}
+
+/// Each poll: a search box that just got focus while the controller plays (the recipe book's, or
+/// a mod's that says so) opens Horizon's on-screen keyboard at the bottom, whichever button or
+/// click focused it. Closed with B, it stays closed until the box gets focus again.
+fn keyboard_on_focus(game: &mut Game<'_>) {
+    let mod_focus = mod_screen_open(game) && mod_text_focus();
+    let recipe_focus = game.recipe_search_focused();
+    let focus = mod_focus || recipe_focus;
+    let was = TEXT_FOCUS.swap(focus, Ordering::Relaxed);
+    if focus && !was && in_use() && game.pad.menu.osk.is_none() {
+        game.pad.menu.osk = Some(horizon_client::osk::Keyboard::default());
+        // The recipe book's search is the game's own: the game types into it.
+        MOD_KEYBOARD.store(mod_focus && !recipe_focus, Ordering::Relaxed);
+    }
+}
 
 /// The mod whose screen is open, if any.
 fn mod_screen_open(game: &Game<'_>) -> bool {
@@ -814,4 +915,192 @@ pub(in crate::game) fn keyboard_output(game: &mut Game<'_>, out: &horizon_client
         Output::Close => close(game),
     }
     true
+}
+
+// ---- Radial menu (left pad) ------------------------------------------------------------------
+
+/// The radial menu: open, the slot under the thumb, and the clicks it keeps from the game.
+struct Radial {
+    open: bool,
+    selected: Option<usize>,
+    last_click: bool,
+    last_b: bool,
+    /// The click (or B) that opened, ran or closed it, kept from the game until let go.
+    swallow_click: bool,
+    swallow_b: bool,
+}
+
+static RADIAL: Mutex<Radial> = Mutex::new(Radial {
+    open: false,
+    selected: None,
+    last_click: false,
+    last_b: false,
+    swallow_click: false,
+    swallow_b: false,
+});
+
+/// The slots' places, clockwise from the top.
+const RADIAL_PLACES: [&str; 8] = [
+    "Up", "Up-right", "Right", "Down-right", "Down", "Down-left", "Left", "Up-left",
+];
+
+/// The d-pad direction that opens the menu, if it's on.
+fn radial_opener(config: &sc::Config) -> Option<Button> {
+    match config.radial_menu.as_str() {
+        "up" => Some(Button::DPadUp),
+        "down" => Some(Button::DPadDown),
+        "left" => Some(Button::DPadLeft),
+        "right" => Some(Button::DPadRight),
+        _ => None,
+    }
+}
+
+/// The main d-pad direction of a left pad point, past its middle.
+fn pad_direction([x, y]: [f32; 2]) -> Option<Button> {
+    if (x * x + y * y).sqrt() < 0.3 {
+        None
+    } else if x.abs() > y.abs() {
+        Some(if x > 0.0 { Button::DPadRight } else { Button::DPadLeft })
+    } else {
+        Some(if y > 0.0 { Button::DPadUp } else { Button::DPadDown })
+    }
+}
+
+/// The slot (0 at the top, clockwise) a left pad point is on, past its middle.
+fn radial_slot([x, y]: [f32; 2]) -> Option<usize> {
+    if (x * x + y * y).sqrt() < 0.35 {
+        return None;
+    }
+    // Clockwise from up: atan2(x, y).
+    let turns = x.atan2(y).rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU;
+    Some((turns * 8.0).round() as usize % 8)
+}
+
+/// What the menu keeps from the game this poll: the left pad (and its click), and B.
+fn radial_swallows() -> (bool, bool) {
+    RADIAL
+        .lock()
+        .map(|r| (r.open || r.swallow_click, r.open || r.swallow_b))
+        .unwrap_or((false, false))
+}
+
+/// The radial menu is open (for the overlay).
+fn radial_open() -> Option<Option<usize>> {
+    RADIAL.lock().ok().filter(|r| r.open).map(|r| r.selected)
+}
+
+/// Each poll: open the menu on its d-pad click, follow the thumb, run the slot clicked, close on
+/// B or a click in the middle; closed whenever the player isn't in play with the controller.
+fn radial_frame(game: &mut Game<'_>, config: &sc::Config, snap: Option<sc::Snapshot>, chording: bool) {
+    let Ok(mut r) = RADIAL.lock() else {
+        return;
+    };
+    let Some(s) = snap else {
+        r.open = false;
+        return;
+    };
+    let click = s.buttons & sc::LEFT_PAD_CLICK != 0;
+    let b = s.buttons & sc::B != 0;
+    let click_edge = click && !r.last_click;
+    let b_edge = b && !r.last_b;
+    r.last_click = click;
+    r.last_b = b;
+    if !click {
+        r.swallow_click = false;
+    }
+    if !b {
+        r.swallow_b = false;
+    }
+    let playing = PLAYING.load(Ordering::Relaxed) && in_use();
+    if !playing {
+        r.open = false;
+        return;
+    }
+    if !r.open {
+        let opener = radial_opener(config);
+        if click_edge
+            && !chording
+            && opener.is_some()
+            && s.left_pad.and_then(pad_direction) == opener
+        {
+            r.open = true;
+            r.selected = None;
+            r.swallow_click = true;
+        }
+        return;
+    }
+    if let Some(point) = s.left_pad {
+        r.selected = radial_slot(point);
+    }
+    if b_edge {
+        r.open = false;
+        r.swallow_b = true;
+        return;
+    }
+    if click_edge {
+        r.open = false;
+        r.swallow_click = true;
+        let command = r.selected.map(|i| config.radial[i].clone()).unwrap_or_default();
+        drop(r);
+        run_radial(game, &command);
+    }
+}
+
+/// A slot's command, as if typed in chat and sent; one ending in `...` (or a space) opens chat
+/// with it typed instead, for the player to finish.
+fn run_radial(game: &mut Game<'_>, command: &str) {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let finish = command.ends_with("...") || command.ends_with(' ');
+    let result = if finish {
+        let text = format!("{} ", trimmed.trim_end_matches("...").trim_end());
+        game.native_open_chat(&text)
+    } else {
+        game.native_send_chat(trimmed)
+    };
+    if let Err(e) = result {
+        log::warn!("Steam Controller: radial menu {trimmed}: {e}");
+    }
+}
+
+/// The wheel, in the middle of the screen while the menu is open.
+fn draw_radial(game: &Game<'_>, batch: &mut HudBatch, config: &sc::Config) {
+    let Some(selected) = radial_open() else {
+        return;
+    };
+    let atlas = &game.gui.atlas;
+    let (cx, cy) = (batch.width / 2.0, batch.height / 2.0);
+    let radius = (batch.height * 0.28).clamp(48.0, 90.0);
+    // The middle: what to do.
+    let hint = "Click: run   B: close";
+    let hw = HudBatch::text_width(atlas, hint);
+    batch.fill(atlas, cx - hw / 2.0 - 3.0, cy - 6.0, hw + 6.0, 12.0, rgba(0, 0, 0, 150));
+    batch.text(atlas, hint, cx - hw / 2.0, cy - 4.0, rgba(200, 200, 200, 255), true);
+    for (i, slot) in config.radial.iter().enumerate() {
+        let angle = i as f32 / 8.0 * std::f32::consts::TAU;
+        let (x, y) = (cx + radius * angle.sin(), cy - radius * angle.cos());
+        let mut text: String = if slot.trim().is_empty() {
+            "-".to_owned()
+        } else {
+            slot.trim().trim_start_matches('/').to_owned()
+        };
+        while text.chars().count() > 3 && HudBatch::text_width(atlas, &text) > 88.0 {
+            let mut kept: Vec<char> = text.trim_end_matches('.').chars().collect();
+            kept.pop();
+            text = kept.into_iter().collect::<String>() + ".";
+        }
+        let w = HudBatch::text_width(atlas, &text) + 8.0;
+        let chosen = selected == Some(i);
+        let (back, colour) = if chosen {
+            (rgba(255, 255, 255, 200), rgba(32, 32, 32, 255))
+        } else if slot.trim().is_empty() {
+            (rgba(0, 0, 0, 110), rgba(120, 120, 120, 255))
+        } else {
+            (rgba(0, 0, 0, 170), rgba(255, 255, 255, 255))
+        };
+        batch.fill(atlas, x - w / 2.0, y - 7.0, w, 14.0, back);
+        batch.text(atlas, &text, x - w / 2.0 + 4.0, y - 4.0, colour, !chosen);
+    }
 }

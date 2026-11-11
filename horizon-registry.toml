@@ -8,6 +8,7 @@ Plays Horizon with the original **Steam Controller** (2015), wired or through it
 - **Controlify's button layout**: A jump, X swap hands, Y inventory, triggers use/attack, bumpers change slot, d-pad down drop. The left trackpad is the d-pad and the grips are jump and sprint.
 - **On-screen controls**: each hand's buttons in its corner, as they're bound. The Steam button shows or hides them.
 - **Works with Steam open**: the keys and mouse movement Steam's Desktop layout makes from the controller are filtered out.
+- **Radial command menu** on the left trackpad: `/gamemode`, `/home`, `/warp`... up to eight, your own.
 - **Alt-Tab from the controller**: hold the Steam button and click the left trackpad right or left.
 - **Rumble** on the trackpads' haptics, optional gyro aiming, and a filled block highlight in place of the outline.
 - **Every setting** is in Options > Mods > Steam Controller > Settings.

@@ -7,7 +7,7 @@ Without Steam, the controller stays in "lizard mode": the right pad moves the mo
 - **Lizard mode off** while the game window has focus. It comes back on a second after you alt-tab away, and again when the game closes, so the controller drives the desktop again.
 - **Buttons, triggers and stick** act as a normal pad with an Xbox layout. Your bindings in Controls > Controller apply as usual.
 - **Left trackpad** is the d-pad: 8 directions, pressed by clicking (or by touch, if you set that).
-- **Right trackpad** is a trackball for the camera, with optional momentum after a flick. In menus it scrolls like a right stick.
+- **Right trackpad** is a trackball for the camera, with optional momentum after a flick. In menus it does nothing, so a resting thumb can't move items.
 - **Gyro aiming** is optional: always on, or only while your thumb rests on the right pad.
 - **Rumble** plays on the pads' haptics.
 - **Grips, the right pad click and the Steam button** can each press any pad button. By default the left grip is A (jump, so your right thumb stays on the trackpad), the right grip is LS (sprint) and the right pad click is RS (sneak).
@@ -57,7 +57,7 @@ The pack is signed with the key in [`minisign.pub`](minisign.pub) (minisign form
 | LB / RB | Previous / next hotbar slot |
 | Stick, click | Move, sprint |
 | Right pad, click | Look, sneak |
-| Left pad (click) up / down / left | Chat / drop / pick block |
+| Left pad (click) up / down / left / right | Chat / drop / pick block / radial menu |
 | View / Start | Perspective / pause |
 | Left / right grip | Jump / sprint |
 | Steam button | Show or hide the on-screen controls |
@@ -70,12 +70,23 @@ Hold the Steam button and click the left pad right (or left) to step forward (or
 
 `alt_tab = back` uses the View button instead (perspective then changes when View is let go), `off` turns it off. It works on Windows. Once you've switched away, the controller goes back to its desktop mouse after a second.
 
+## Radial menu (commands)
+
+Click the left pad on its right side (d-pad →) and a wheel of up to eight commands opens in the middle of the screen. Point at one with your thumb on the left pad, then click the pad to run it; B, or a click in the middle, closes the wheel.
+
+- Defaults, clockwise from the top: `/gamemode creative`, `/home`, `/back`, `/warp ...`, `/gamemode survival`, `/sethome`, `/time set day`, `/weather clear`.
+- A slot ending in `...` (like `/warp ...`) opens chat with it typed in, and the on-screen keyboard, to finish it (a warp's name).
+- On the settings page, each slot's button steps through common commands. For anything else, "Edit radial commands" opens the settings file (`radial_1` to `radial_8`, clockwise from the top; saved changes apply at once).
+- `radial_menu` picks the d-pad direction that opens it (`up`, `down`, `left`, `right`) or `off`.
+
 ## Typing with the controller
 
-- **Recipe book search** (normal crafting): select the search box and press A. Horizon's own on-screen keyboard opens at the bottom of the screen.
-- **Mods' screens** (Machine Tech's Terminal search, Quest Book...): press View. The same keyboard opens across the bottom, and its keys go to the screen as typing.
+Horizon's own on-screen keyboard opens at the bottom of the screen when a search box gets focus while you play with the controller, whichever button clicked it:
 
-On the keyboard, the d-pad or stick moves, A types, X deletes, Y is a space, Start is Enter and B closes it.
+- **Recipe book search** (normal crafting).
+- **Machine Tech's Terminal search**, once Machine Tech reports its search box's focus (`HORIZON_PAD_TEXT_FOCUS`). On any mod's screen, View also opens it.
+
+On the keyboard, the d-pad or stick moves, A types, X deletes, Y is a space, Start is Enter and B closes it. Closed with B, it opens again the next time the box gets focus.
 
 ## On-screen controls
 
@@ -118,6 +129,8 @@ The same settings are in `config/steam_controller.txt` in the instance folder. I
 | `block_highlight` | `fill` | `fill` or `outline` |
 | `block_highlight_colour` | `white` | `white red orange yellow green cyan blue magenta black inverted` |
 | `filter_steam_input` | `true` | drop Steam's Desktop-layout echo |
+| `radial_menu` | `right` | the d-pad direction (left pad click) that opens the radial menu, or `off` |
+| `radial_1` ... `radial_8` | see above | the radial menu's commands, clockwise from the top |
 | `alt_tab` | `steam` | `steam` (hold Steam + left pad right/left), `back` (hold View), `off` |
 | `controlify_layout` | `pending` | `pending` sets the game's bindings to Controlify's once, then `done` |
 | `left_grip`, `right_grip`, `right_pad_click`, `left_pad_center`, `steam_button` | `south`, `ls`, `rs`, `none`, `overlay` | `south east west north lb rb lt rt select start ls rs up down left right none` |

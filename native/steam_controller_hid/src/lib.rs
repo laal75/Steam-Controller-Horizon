@@ -126,7 +126,25 @@ pub struct Config {
     pub alt_tab: String,
     /// The game's controller bindings still have to be set to Controlify's layout (once).
     pub controlify_layout_pending: bool,
+    /// The d-pad direction (a left pad click) that opens the radial menu: up, down, left, right,
+    /// or off.
+    pub radial_menu: String,
+    /// The radial menu's eight slots, clockwise from the top: a command (`/home`), a chat line,
+    /// or empty. One ending in `...` (or a space) opens chat with it typed, to finish.
+    pub radial: [String; 8],
 }
+
+/// The radial menu's slots before the player sets any.
+pub const RADIAL_DEFAULTS: [&str; 8] = [
+    "/gamemode creative",
+    "/home",
+    "/back",
+    "/warp ...",
+    "/gamemode survival",
+    "/sethome",
+    "/time set day",
+    "/weather clear",
+];
 
 impl Default for Config {
     fn default() -> Self {
@@ -155,6 +173,8 @@ impl Default for Config {
             block_highlight_colour: "white".into(),
             filter_steam_input: true,
             alt_tab: "steam".into(),
+            radial_menu: "right".into(),
+            radial: RADIAL_DEFAULTS.map(String::from),
             controlify_layout_pending: true,
         }
     }
@@ -164,8 +184,8 @@ impl Config {
     pub fn parse(text: &str) -> Self {
         let mut c = Config::default();
         let mut version = 1;
-        for line in text.lines() {
-            let line = line.split('#').next().unwrap_or("").trim();
+        for full in text.lines() {
+            let line = full.split('#').next().unwrap_or("").trim();
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
@@ -220,6 +240,19 @@ impl Config {
                 "block_highlight_colour" => c.block_highlight_colour = value,
                 "filter_steam_input" => c.filter_steam_input = flag(c.filter_steam_input),
                 "alt_tab" => c.alt_tab = value,
+                "radial_menu" => c.radial_menu = value,
+                slot if slot.starts_with("radial_") => {
+                    // A command keeps its case and a trailing space: the line as written.
+                    let raw = full.split_once('=').map_or("", |(_, v)| v);
+                    let raw = raw.trim_start();
+                    if let Some(i) = slot["radial_".len()..]
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|i| (1..=8).contains(i))
+                    {
+                        c.radial[i - 1] = raw.to_owned();
+                    }
+                }
                 "controlify_layout" => c.controlify_layout_pending = value == "pending",
                 _ => {}
             }
@@ -269,7 +302,7 @@ impl Config {
             Gyro::Touch => "touch",
             Gyro::Always => "always",
         };
-        format!(
+        let mut text = format!(
             "# Steam Controller settings (Horizon mod steam_controller). Saved changes apply within\n\
              # two seconds, no restart needed.\n\
              \n\
@@ -357,7 +390,19 @@ impl Config {
             self.filter_steam_input,
             self.alt_tab,
             if self.controlify_layout_pending { "pending" } else { "done" },
-        )
+        );
+        text.push_str(&format!(
+            "\n# Radial menu: click the left pad in this d-pad direction to open it (up, down, left,\n\
+             # right, or off), point at a slot with your thumb, click to run it; B closes it.\n\
+             radial_menu = {}\n\
+             # Its slots, clockwise from the top: a command, a chat line, or nothing. One ending in\n\
+             # ... (\"/warp ...\") opens chat with it typed, for you to finish.\n",
+            self.radial_menu
+        ));
+        for (i, slot) in self.radial.iter().enumerate() {
+            text.push_str(&format!("radial_{} = {}\n", i + 1, slot));
+        }
+        text
     }
 }
 
